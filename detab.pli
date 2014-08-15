@@ -1,0 +1,189 @@
+/* detab.pli --  convert tabs to spaces                              */
+/*********************************************************************/
+/*                                                                   */
+/* Module:         detab                                             */
+/*                                                                   */
+/* Author:         Peter Flass <Peter_Flass@Yahoo.com>               */
+/*                 24 Aug, 2001                                      */
+/*                                                                   */
+/* Function:       convert tabs in text files to a variable number   */
+/*                 of spaces                                         */
+/*                                                                   */
+/* Calling Sequence:                                                 */
+/*                 detab <input_file> [<output_file>] [-n <number>]  */
+/*                 n is the number of spaces per tab; the default    */
+/*                 is four.  The default for <output_file> is        */
+/*                 <input_file>.out                                  */
+/*                                                                   */
+/* Environment:    OS/2 Warp; VisualAge PL/I 1.1                     */
+/*                 File system used must allow long filenames        */
+/*                                                                   */
+/* Restrictions:   The maximum input and output record length is     */
+/*                 1024 bytes                                        */
+/*                                                                   */
+/* Modifications:                                                    */
+/*                                                                   */
+/*********************************************************************/
+
+detab: procedure(parm) options(main noexecops);
+  dcl    parm                character(1024)     varying;
+
+  dcl   (infile,outfile)     character(1024)     varying   initial('');
+  dcl    tab_count           fixed binary        initial(10);
+
+  dcl    in                  record input
+                             environment( recsize(1024) );
+  dcl    out                 record output
+                             environment( recsize(1024) );
+  dcl    stderr              print;
+  dcl   (buf_in,buf_out)     character(1024)     varying;
+
+  dcl   (ip,op)              fixed binary;
+  dcl   (i,j)                fixed binary;
+
+  dcl    eof                 bit(1)              initial('0'b);
+  dcl    undef               bit(1)              initial('0'b);
+
+  dcl   (addr,copy,edit,index,length,mod,substr,verify)
+                             builtin;
+
+  dcl    TAB                 character(1)        initial('09'x);
+
+  on endfile(in)        eof='1'b;
+  on undefinedfile(in)  undef='1'b;
+  on undefinedfile(out) undef='1'b;
+
+  open file(stderr) output title( '/stderr:,append(n)' );
+
+  call parse_parm;
+
+  open file(in) input title( '/' || infile || ',type(LF) ');
+  if undef then do;
+    put file(stderr) skip edit( 'detab: undefined input file "' || infile || '"' )(a);
+    return;
+    end; /* undef */
+  open file(out) output title( '/' || outfile || ',append(n)' );
+  if undef then do;
+    put file(stderr) skip edit( 'detab: output file open error "' || outfile || '"' )(a);
+    return;
+    end; /* undef */
+
+  read file(in) into(buf_in);
+  do while( ªeof );
+    /* Strip CR if read, to be inserted on output */
+    if substr(buf_in,length(buf_in),1)='0D'x
+    then buf_in = substr(buf_in,1,length(buf_in)-1);
+    ip = 1;
+    buf_out='';
+rep:do while('1'b );
+      i = index(buf_in,TAB,ip);
+      if i>0 then do;
+          if iª=1 then do;
+            buf_out = buf_out || substr(buf_in,ip,i-ip);
+            end; /* iª=1 */ 
+          j = tab_count - mod( length(buf_out), tab_count );
+          if j=0 then j=tab_count;
+          buf_out = buf_out || copy(' ',j);
+          ip = i+1;
+          end; /* i>0 */
+      else do;
+          buf_out = buf_out || substr(buf_in,ip);
+          leave rep; /* end of replace loop */
+          end; /* else */
+      end; /* do while */
+    write file(out) from(buf_out);
+    read file(in)   into(buf_in);
+    end; /* do while */
+
+  close file(in),
+        file(out);
+  return;
+
+parse_parm: procedure;
+  dcl    wrd                 character(256)      varying;
+  dcl    i                   fixed binary        initial(1);
+  dcl    t                   fixed decimal(5);
+
+  infile = word(parm,i);
+  i = i+1;
+  wrd    = word(parm,i);
+  i = i+1;
+  if substr(wrd,1,1)ª='-'
+  then do;
+     outfile = wrd;
+     wrd = word(parm,i);
+     i= i+1;
+     end;
+  if outfile = '' then outfile = infile || '.out';
+
+  if substr(wrd,1,2)='-n' | substr(wrd,1,2)='-N'
+  then do;
+    wrd = substr(wrd,3);
+    if wrd='' then wrd = word(parm,i);
+    end; /* -n */
+  else return;
+  if verify(wrd,'0123456789')ª=0 then do;
+    put file(stderr) skip edit( 'detab: tab value "'  || wrd || '" invalid, "' ||
+                                edit(tab_count,'zz9') || '" assumed.' )(a);
+    return;
+    end; /* verify */
+  t = wrd;
+  if t<1 | t>100 then do;
+    put file(stderr) skip edit( 'detab: tab value "'  || wrd || '" invalid, "' ||
+                                edit(tab_count,'zz9') || '" assumed.' )(a);
+    return;
+    end; /* t */
+
+  tab_count = t;
+              
+  end parse_parm;
+
+
+ /*------------------------------------------------------------------*/
+ /* REXX-like 'word()' function.                                     */
+ /*------------------------------------------------------------------*/
+
+ word: procedure(str,no) options( reentrant )
+                         returns( char(256) varying );
+
+ dcl  str                    char(*) varying;
+ dcl  no                     fixed bin(15);
+ dcl (s,e,i,n)               fixed bin(15)       init(0);
+
+ i=1;
+ do while('1'b);
+   s=find_start(str,i);
+   if s=0 then return('');
+   n=n+1;
+   i=s;
+   e=find_end(str,i);
+   i=e;
+   if n=no then return( substr(str,s,e-s) );
+   end; /* do while */
+
+ find_start: proc(s,p) options( reentrant )
+                       returns( fixed bin(15) );
+   dcl s                     char(*) varying;
+   dcl p                     fixed bin(15);
+   dcl j                     fixed bin(15);
+   do j=p to length(s);
+     if substr(str,j,1)ª=' ' then return(j);
+     end;
+   return(0);
+   end find_start;
+
+ find_end: proc(s,p) options( reentrant )
+                     returns( fixed bin(15) );
+   dcl s                     char(*) varying;
+   dcl p                     fixed bin(15);
+   dcl j                     fixed bin(15);
+   do j=p to length(s);
+     if substr(str,j,1)=' ' then return(j);
+     end;
+   return( length(s)+1 );
+   end find_end;
+
+   end word;
+
+   end detab;
+
